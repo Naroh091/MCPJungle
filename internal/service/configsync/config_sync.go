@@ -336,13 +336,13 @@ func (s *Service) reconcileMcpServers(ctx context.Context) error {
 		}
 
 		existing, getErr := s.services.MCPService.GetMcpServer(name)
-		if getErr != nil && !errors.Is(getErr, gorm.ErrRecordNotFound) {
+		if getErr != nil && !errors.Is(getErr, mcp.ErrMCPServerNotFound) {
 			errs = append(errs, fmt.Errorf("failed to read mcp server %s: %w", name, getErr))
 			continue
 		}
 
 		track, tracked := managed[name]
-		if errors.Is(getErr, gorm.ErrRecordNotFound) {
+		if errors.Is(getErr, mcp.ErrMCPServerNotFound) {
 			if err := s.services.MCPService.RegisterMcpServer(ctx, server); err != nil {
 				errs = append(errs, fmt.Errorf("failed to create mcp server %s from %s: %w", name, d.path, err))
 				continue
@@ -448,11 +448,11 @@ func (s *Service) reconcileMcpClients() error {
 		}
 
 		existing, err := s.services.MCPClientService.GetClient(name)
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		if err != nil && !errors.Is(err, mcpclient.ErrMCPClientNotFound) {
 			errs = append(errs, fmt.Errorf("failed to fetch mcp client %s: %w", name, err))
 			continue
 		}
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, mcpclient.ErrMCPClientNotFound) {
 			// client is desired but doesn't yet exist, create it
 			newClient := model.McpClient{
 				Name:        name,
@@ -642,7 +642,7 @@ func (s *Service) reconcileUsers() error {
 
 		existing, err := s.services.UserService.GetUser(name)
 		if err != nil {
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
+			if !errors.Is(err, user.ErrUserNotFound) {
 				// unexpected error
 				errs = append(errs, fmt.Errorf("failed to fetch user %s: %w", name, err))
 				continue
@@ -650,11 +650,12 @@ func (s *Service) reconcileUsers() error {
 
 			// user doesn't exist in db, create one
 			newUser := &model.User{Username: name, AccessToken: accessToken}
-			_, err := s.services.UserService.CreateUser(newUser)
+			createdUser, err := s.services.UserService.CreateUser(newUser)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("failed to create user %s: %w", name, err))
 				continue
 			}
+			existing = createdUser
 		}
 
 		// by this point, the user definitely exists. check for updates to any attributes.
@@ -689,7 +690,7 @@ func (s *Service) reconcileUsers() error {
 		// the user is no longer desired at this point
 		managedUser, err := s.services.UserService.GetUser(name)
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
+			if errors.Is(err, user.ErrUserNotFound) {
 				// if the user is already gone, stop tracking its config in the system as well
 				_ = s.deleteManagedRow(model.EntityTypeUser, name)
 				continue

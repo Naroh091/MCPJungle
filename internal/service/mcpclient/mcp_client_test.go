@@ -1,6 +1,7 @@
 package mcpclient
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/mcpjungle/mcpjungle/internal/model"
@@ -175,6 +176,9 @@ func TestGetClientByTokenNotFound(t *testing.T) {
 	// Try to get client with non-existent token
 	client, err := svc.GetClientByToken("non-existent-token")
 	testhelpers.AssertError(t, err)
+	if !errors.Is(err, ErrMCPClientNotFound) {
+		t.Fatalf("expected ErrMCPClientNotFound, got: %v", err)
+	}
 	if client != nil {
 		t.Error("Expected client to be nil when token not found")
 	}

@@ -1,6 +1,7 @@
 package user
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/mcpjungle/mcpjungle/internal/model"
@@ -116,6 +117,9 @@ func TestGetUserByAccessToken(t *testing.T) {
 	// Test getting user by invalid token
 	_, err := svc.GetUserByAccessToken("invalid-token")
 	testhelpers.AssertError(t, err)
+	if !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("expected ErrUserNotFound, got: %v", err)
+	}
 }
 
 func TestListUsers(t *testing.T) {
@@ -178,6 +182,9 @@ func TestDeleteUserNotFound(t *testing.T) {
 	// Try to delete non-existent user
 	err := svc.DeleteUser("nonexistent")
 	testhelpers.AssertError(t, err)
+	if !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("expected ErrUserNotFound, got: %v", err)
+	}
 }
 
 func TestDeleteAdminUser(t *testing.T) {
@@ -251,6 +258,9 @@ func TestUpdateUserNotFound(t *testing.T) {
 	}
 	updatedUser, err := svc.UpdateUser(updateInput)
 	testhelpers.AssertError(t, err)
+	if !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("expected ErrUserNotFound, got: %v", err)
+	}
 	if updatedUser != nil {
 		t.Error("Expected update to fail for non-existent user")
 	}
