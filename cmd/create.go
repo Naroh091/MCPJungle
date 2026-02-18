@@ -1,11 +1,10 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
+	"github.com/mcpjungle/mcpjungle/pkg/configfiles"
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 	"github.com/spf13/cobra"
 )
@@ -296,47 +295,30 @@ func runCreateToolGroup(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// readToolGroupConfig reads the tool group configuration from a JSON file.
 func readToolGroupConfig(filePath string) (*types.ToolGroup, error) {
-	var input types.ToolGroup
-
-	data, err := os.ReadFile(filePath)
+	input, err := configfiles.ReadJSONFile[types.ToolGroup](filePath)
 	if err != nil {
-		return &input, fmt.Errorf("failed to read config file %s: %w", filePath, err)
+		return nil, err
 	}
-	if err := json.Unmarshal(data, &input); err != nil {
-		return &input, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
 	return &input, nil
 }
 
 // readMcpClientConfig reads the MCP client configuration from a JSON file.
 func readMcpClientConfig(filePath string) (*types.McpClientConfig, error) {
-	var input types.McpClientConfig
-
-	data, err := os.ReadFile(filePath)
+	input, err := configfiles.ReadJSONFile[types.McpClientConfig](filePath)
 	if err != nil {
-		return &input, fmt.Errorf("failed to read config file %s: %w", filePath, err)
+		return nil, err
 	}
-	if err := json.Unmarshal(data, &input); err != nil {
-		return &input, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
 	return &input, nil
 }
 
 // readUserConfig reads the user configuration from a JSON file.
 func readUserConfig(filePath string) (*types.UserConfig, error) {
-	var input types.UserConfig
-
-	data, err := os.ReadFile(filePath)
+	input, err := configfiles.ReadJSONFile[types.UserConfig](filePath)
 	if err != nil {
-		return &input, fmt.Errorf("failed to read config file %s: %w", filePath, err)
+		return nil, err
 	}
-	if err := json.Unmarshal(data, &input); err != nil {
-		return &input, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
 	return &input, nil
 }
 
