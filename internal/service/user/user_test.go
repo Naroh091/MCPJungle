@@ -122,6 +122,36 @@ func TestGetUserByAccessToken(t *testing.T) {
 	}
 }
 
+func TestGetUser(t *testing.T) {
+	setup, _ := testhelpers.SetupUserTest(t)
+	defer setup.Cleanup()
+	svc := NewUserService(setup.DB)
+
+	created, err := svc.CreateUser(&model.User{Username: "alice"})
+	testhelpers.AssertNoError(t, err)
+
+	got, err := svc.GetUser("alice")
+	testhelpers.AssertNoError(t, err)
+	testhelpers.AssertNotNil(t, got)
+	testhelpers.AssertEqual(t, created.Username, got.Username)
+	testhelpers.AssertEqual(t, created.AccessToken, got.AccessToken)
+}
+
+func TestGetUserNotFound(t *testing.T) {
+	setup, _ := testhelpers.SetupUserTest(t)
+	defer setup.Cleanup()
+	svc := NewUserService(setup.DB)
+
+	got, err := svc.GetUser("missing-user")
+	testhelpers.AssertError(t, err)
+	if !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("expected ErrUserNotFound, got: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil user, got: %+v", got)
+	}
+}
+
 func TestListUsers(t *testing.T) {
 	setup := testhelpers.SetupTestDB(t)
 	defer setup.Cleanup()
