@@ -8,6 +8,7 @@ import (
 
 	"github.com/mcpjungle/mcpjungle/internal/migrations"
 	"github.com/mcpjungle/mcpjungle/internal/model"
+	"github.com/mcpjungle/mcpjungle/internal/service/user"
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -27,8 +28,11 @@ func newTestDB(t *testing.T) *gorm.DB {
 
 func TestReconcileUsers_AdminUserIsRejected(t *testing.T) {
 	db := newTestDB(t)
+	userService := user.NewUserService(db)
 	tmp := t.TempDir()
-	if err := ensureSubDirs(tmp); err != nil {
+	s := &Service{db: db, services: Services{UserService: userService}, opts: Options{Dir: tmp}}
+
+	if err := s.ensureSubDirs(); err != nil {
 		t.Fatalf("ensure dirs: %v", err)
 	}
 	if err := db.Create(&model.User{Username: "admin", Role: types.UserRoleAdmin, AccessToken: "mcpjungle_test_admin"}).Error; err != nil {
@@ -39,7 +43,6 @@ func TestReconcileUsers_AdminUserIsRejected(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	s := &Service{services: Services{DB: db}, opts: Options{Dir: tmp}}
 	err := s.reconcileUsers()
 	if err == nil {
 		t.Fatal("expected error")
@@ -59,8 +62,11 @@ func TestReconcileUsers_AdminUserIsRejected(t *testing.T) {
 
 func TestReconcileUsers_AdoptsExistingManualUser(t *testing.T) {
 	db := newTestDB(t)
+	userService := user.NewUserService(db)
 	tmp := t.TempDir()
-	if err := ensureSubDirs(tmp); err != nil {
+	s := &Service{db: db, services: Services{UserService: userService}, opts: Options{Dir: tmp}}
+
+	if err := s.ensureSubDirs(); err != nil {
 		t.Fatalf("ensure dirs: %v", err)
 	}
 	if err := db.Create(&model.User{Username: "alice", Role: types.UserRoleUser, AccessToken: "mcpjungle_test_oldtoken"}).Error; err != nil {
@@ -71,7 +77,6 @@ func TestReconcileUsers_AdoptsExistingManualUser(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	s := &Service{services: Services{DB: db}, opts: Options{Dir: tmp}}
 	if err := s.reconcileUsers(); err != nil {
 		t.Fatalf("reconcile users: %v", err)
 	}

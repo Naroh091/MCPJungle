@@ -70,6 +70,19 @@ func (m *McpClientService) GetClientByToken(token string) (*model.McpClient, err
 	return &client, nil
 }
 
+// GetClient retrieves an MCP client by its name from the database.
+// It returns an error if no such client is found.
+func (m *McpClientService) GetClient(name string) (*model.McpClient, error) {
+	var client model.McpClient
+	if err := m.db.Where("name = ?", name).First(&client).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("client not found")
+		}
+		return nil, err
+	}
+	return &client, nil
+}
+
 // DeleteClient removes an MCP client from the database and immediately revokes its access.
 // It is an idempotent operation. Deleting a client that does not exist will not return an error.
 func (m *McpClientService) DeleteClient(name string) error {

@@ -18,7 +18,9 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/mcpjungle/mcpjungle/internal/model"
 	"github.com/mcpjungle/mcpjungle/internal/service/mcp"
+	"github.com/mcpjungle/mcpjungle/internal/service/mcpclient"
 	"github.com/mcpjungle/mcpjungle/internal/service/toolgroup"
+	"github.com/mcpjungle/mcpjungle/internal/service/user"
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
@@ -32,13 +34,15 @@ type Options struct {
 
 // Services groups the external services that the config sync service depends on to do its job.
 type Services struct {
-	DB               *gorm.DB
 	MCPService       *mcp.MCPService
 	ToolGroupService *toolgroup.ToolGroupService
+	UserService      *user.UserService
+	MCPClientService *mcpclient.McpClientService
 }
 
 type Service struct {
 	opts     Options
+	db       *gorm.DB
 	services Services
 
 	watcher *fsnotify.Watcher
@@ -46,14 +50,14 @@ type Service struct {
 	wg      sync.WaitGroup
 }
 
-func New(opts Options, services Services) (*Service, error) {
-	if services.DB == nil || services.MCPService == nil || services.ToolGroupService == nil {
+func New(opts Options, db *gorm.DB, services Services) (*Service, error) {
+	if db == nil || services.MCPService == nil || services.ToolGroupService == nil {
 		return nil, fmt.Errorf("config sync requires DB, MCP service and ToolGroup service")
 	}
 	if opts.Dir == "" {
 		return nil, fmt.Errorf("config sync requires a directory to watch")
 	}
-	return &Service{opts: opts, services: services}, nil
+	return &Service{opts: opts, db: db, services: services}, nil
 }
 
 // Start begins watching the config directory for changes in the background and reconciling them with mcpjungle.
@@ -131,7 +135,7 @@ func (s *Service) watchLoop(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if !isRelevantEvent(ev) {
+			if !isRelevantFsEvent(ev) {
 				continue
 			}
 			pending = true
@@ -147,9 +151,9 @@ func (s *Service) watchLoop(ctx context.Context) {
 	}
 }
 
-// isRelevantEvent filters fsnotify events to only those that are relevant for triggering a reconciliation.
+// isRelevantFsEvent filters fsnotify events to only those that are relevant for triggering a reconciliation.
 // We only care when a file is created, modified, removed, or renamed.
-func isRelevantEvent(ev fsnotify.Event) bool {
+func isRelevantFsEvent(ev fsnotify.Event) bool {
 	return ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) != 0
 }
 
@@ -193,6 +197,7 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	return nil
 }
 
+// desiredFile represents a config file on disk that we want to be reflected in the system.
 type desiredFile[T any] struct {
 	entity   T
 	name     string
@@ -201,14 +206,21 @@ type desiredFile[T any] struct {
 	parseErr error
 }
 
+// loadDesired reads config files from the specified directory, parses them into entities of type T, and returns
+// a map of entity name to desiredFile.
+// It also returns a map of file paths that had errors during loading (either read errors or parse errors) to
+// a boolean (the value is not used, we just need a set).
+// If there were any errors during loading, it returns a slice of those errors as well.
 func loadDesired[T any](dir string, nameFn func(T) string) (map[string]desiredFile[T], map[string]bool, []error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, nil, []error{fmt.Errorf("failed to read directory %s: %w", dir, err)}
 	}
+
 	result := map[string]desiredFile[T]{}
 	blocked := map[string]bool{}
 	var errs []error
+
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -246,12 +258,13 @@ func loadDesired[T any](dir string, nameFn func(T) string) (map[string]desiredFi
 			hash:   hex.EncodeToString(h[:]),
 		}
 	}
+
 	return result, blocked, errs
 }
 
 func (s *Service) loadManaged(entityType model.EntityType) (map[string]model.ManagedConfigFile, error) {
 	var rows []model.ManagedConfigFile
-	if err := s.services.DB.Where("entity_type = ?", entityType).Find(&rows).Error; err != nil {
+	if err := s.db.Where("entity_type = ?", entityType).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make(map[string]model.ManagedConfigFile, len(rows))
@@ -271,12 +284,12 @@ func toJSON(v any) (datatypes.JSON, error) {
 
 func (s *Service) createOrUpdateManagedRow(entityType model.EntityType, name, path, hash string) error {
 	var row model.ManagedConfigFile
-	err := s.services.DB.Where("entity_type = ? AND entity_name = ?", entityType, name).First(&row).Error
+	err := s.db.Where("entity_type = ? AND entity_name = ?", entityType, name).First(&row).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return s.services.DB.Create(&model.ManagedConfigFile{
+		return s.db.Create(&model.ManagedConfigFile{
 			EntityType: entityType,
 			EntityName: name,
 			FilePath:   path,
@@ -285,22 +298,26 @@ func (s *Service) createOrUpdateManagedRow(entityType model.EntityType, name, pa
 	}
 	row.FilePath = path
 	row.FileHash = hash
-	return s.services.DB.Save(&row).Error
+	return s.db.Save(&row).Error
 }
 
 func (s *Service) deleteManagedRow(entityType model.EntityType, name string) error {
-	return s.services.DB.Unscoped().Where("entity_type = ? AND entity_name = ?", entityType, name).Delete(&model.ManagedConfigFile{}).Error
+	return s.db.Unscoped().Where("entity_type = ? AND entity_name = ?", entityType, name).Delete(&model.ManagedConfigFile{}).Error
 }
 
 func (s *Service) reconcileMcpServers(ctx context.Context) error {
 	desired, blocked, parseErrs := loadDesired[types.RegisterServerInput](filepath.Join(s.opts.Dir, types.ConfigSyncMcpServersDirName), func(i types.RegisterServerInput) string { return i.Name })
+
 	managed, err := s.loadManaged(model.EntityTypeMcpServer)
 	if err != nil {
 		return fmt.Errorf("failed to load tracked mcp server configs: %w", err)
 	}
+
 	var errs []error
 	errs = append(errs, parseErrs...)
 
+	// for each desired mcp server config, ensure the corresponding server exists with the correct attributes
+	// also track the desired state config if not already tracked
 	for name, d := range desired {
 		transport, err := types.ValidateTransport(d.entity.Transport)
 		if err != nil {
@@ -309,7 +326,7 @@ func (s *Service) reconcileMcpServers(ctx context.Context) error {
 		}
 		sessionMode, err := types.ValidateSessionMode(d.entity.SessionMode)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("invalid session_mode in %s: %w", d.path, err))
+			errs = append(errs, fmt.Errorf("invalid session mode in %s: %w", d.path, err))
 			continue
 		}
 		server, err := newServerFromInput(d.entity, transport, sessionMode)
@@ -361,6 +378,8 @@ func (s *Service) reconcileMcpServers(ctx context.Context) error {
 		}
 	}
 
+	// for each tracked mcp server config, if the corresponding config file is now missing and there are no errors
+	// blocking deletion, delete the server and stop tracking its config
 	for name, trackedRow := range managed {
 		if _, ok := desired[name]; ok {
 			continue
@@ -400,20 +419,25 @@ func serverEqual(a, b *model.McpServer) bool {
 
 func (s *Service) reconcileMcpClients() error {
 	desired, blocked, parseErrs := loadDesired[types.McpClientConfig](filepath.Join(s.opts.Dir, types.ConfigSyncMcpClientsDirName), func(i types.McpClientConfig) string { return i.Name })
+
 	managed, err := s.loadManaged(model.EntityTypeMcpClient)
 	if err != nil {
 		return err
 	}
+
 	var errs []error
 	errs = append(errs, parseErrs...)
 
+	// for each desired mcp client config, ensure the corresponding client exists with the correct attributes
+	// also track the desired state config if not already tracked
 	for name, d := range desired {
 		allowJSON, err := toJSON(d.entity.AllowMcpServers)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid allow list in %s: %w", d.path, err))
 			continue
 		}
-		accessToken, err := resolveAccessTokenFromConfig(d.entity.AccessToken, d.entity.AccessTokenRef)
+
+		accessToken, err := d.entity.AccessTokenRef.ResolveAccessToken(d.entity.AccessToken)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to resolve access token in %s: %w", d.path, err))
 			continue
@@ -423,38 +447,46 @@ func (s *Service) reconcileMcpClients() error {
 			continue
 		}
 
-		var existing model.McpClient
-		err = s.services.DB.Where("name = ?", name).First(&existing).Error
+		existing, err := s.services.MCPClientService.GetClient(name)
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			errs = append(errs, fmt.Errorf("failed to fetch mcp client %s: %w", name, err))
 			continue
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			if err := s.services.DB.Create(&model.McpClient{
+			// client is desired but doesn't yet exist, create it
+			newClient := model.McpClient{
 				Name:        name,
 				Description: d.entity.Description,
 				AccessToken: accessToken,
 				AllowList:   allowJSON,
-			}).Error; err != nil {
+			}
+			_, createClientErr := s.services.MCPClientService.CreateClient(newClient)
+			if createClientErr != nil {
 				errs = append(errs, fmt.Errorf("failed to create mcp client %s: %w", name, err))
 				continue
 			}
 		} else {
+			// by this point, the client definitely exists. check for updates to any attributes.
 			if existing.Description != d.entity.Description || existing.AccessToken != accessToken || !slices.Equal(existing.AllowList, allowJSON) {
 				existing.Description = d.entity.Description
 				existing.AccessToken = accessToken
 				existing.AllowList = allowJSON
-				if err := s.services.DB.Save(&existing).Error; err != nil {
+
+				_, err := s.services.MCPClientService.UpdateClient(*existing)
+				if err != nil {
 					errs = append(errs, fmt.Errorf("failed to update mcp client %s: %w", name, err))
 					continue
 				}
 			}
 		}
+
 		if err := s.createOrUpdateManagedRow(model.EntityTypeMcpClient, name, d.path, d.hash); err != nil {
 			errs = append(errs, fmt.Errorf("failed to track mcp client %s: %w", name, err))
 		}
 	}
 
+	// for each tracked mcp client config, if the corresponding config file is now missing and there are no errors
+	// blocking deletion, delete the client and stop tracking its config
 	for name, trackedRow := range managed {
 		if _, ok := desired[name]; ok {
 			continue
@@ -462,7 +494,9 @@ func (s *Service) reconcileMcpClients() error {
 		if blocked[trackedRow.FilePath] || fileExists(trackedRow.FilePath) {
 			continue
 		}
-		if err := s.services.DB.Unscoped().Where("name = ?", name).Delete(&model.McpClient{}).Error; err != nil {
+
+		// client is no longer desired, delete it and stop tracking
+		if err := s.services.MCPClientService.DeleteClient(name); err != nil {
 			errs = append(errs, fmt.Errorf("failed to delete managed mcp client %s after file removal: %w", name, err))
 			continue
 		}
@@ -470,6 +504,7 @@ func (s *Service) reconcileMcpClients() error {
 			errs = append(errs, fmt.Errorf("failed to remove tracking for mcp client %s: %w", name, err))
 		}
 	}
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
@@ -478,34 +513,50 @@ func (s *Service) reconcileMcpClients() error {
 
 func (s *Service) reconcileGroups() error {
 	desired, blocked, parseErrs := loadDesired[types.ToolGroup](filepath.Join(s.opts.Dir, types.ConfigSyncGroupsDirName), func(i types.ToolGroup) string { return i.Name })
+
 	managed, err := s.loadManaged(model.EntityTypeGroup)
 	if err != nil {
 		return err
 	}
+
 	var errs []error
 	errs = append(errs, parseErrs...)
 
+	// for each desired group config, ensure the corresponding group exists with the correct attributes
+	// also track the desired state config if not already tracked
 	for name, d := range desired {
 		incTools, err := toJSON(d.entity.IncludedTools)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid included_tools in %s: %w", d.path, err))
 			continue
 		}
+
 		incServers, err := toJSON(d.entity.IncludedServers)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid included_servers in %s: %w", d.path, err))
 			continue
 		}
+
 		exclTools, err := toJSON(d.entity.ExcludedTools)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid excluded_tools in %s: %w", d.path, err))
 			continue
 		}
-		groupModel := &model.ToolGroup{Name: name, Description: d.entity.Description, IncludedTools: incTools, IncludedServers: incServers, ExcludedTools: exclTools}
+
+		groupModel := &model.ToolGroup{
+			Name:            name,
+			Description:     d.entity.Description,
+			IncludedTools:   incTools,
+			IncludedServers: incServers,
+			ExcludedTools:   exclTools,
+		}
+
 		_, tracked := managed[name]
+
 		old, err := s.services.ToolGroupService.GetToolGroup(name)
 		if err != nil {
 			if errors.Is(err, toolgroup.ErrToolGroupNotFound) {
+				// group is desired but doesn't yet exist, create it
 				if err := s.services.ToolGroupService.CreateToolGroup(groupModel); err != nil {
 					errs = append(errs, fmt.Errorf("failed to create group %s from %s: %w", name, d.path, err))
 					continue
@@ -516,16 +567,23 @@ func (s *Service) reconcileGroups() error {
 			}
 		} else {
 			if !tracked || !groupEqual(old, groupModel) {
+				// group exists but is either not tracked (manually created) or has drifted from the desired state,
+				// update it
 				if _, err := s.services.ToolGroupService.UpdateToolGroup(name, groupModel); err != nil {
 					errs = append(errs, fmt.Errorf("failed to update group %s from %s: %w", name, d.path, err))
 					continue
 				}
 			}
 		}
+
+		// by this point, the group definitely exists and is up to date. if it's not tracked already, track it now.
 		if err := s.createOrUpdateManagedRow(model.EntityTypeGroup, name, d.path, d.hash); err != nil {
 			errs = append(errs, fmt.Errorf("failed to track group %s: %w", name, err))
 		}
 	}
+
+	// for each tracked group config, if the corresponding config file is now missing and there are no errors
+	// blocking deletion, delete the group and stop tracking its config
 	for name, trackedRow := range managed {
 		if _, ok := desired[name]; ok {
 			continue
@@ -533,6 +591,7 @@ func (s *Service) reconcileGroups() error {
 		if blocked[trackedRow.FilePath] || fileExists(trackedRow.FilePath) {
 			continue
 		}
+
 		if err := s.services.ToolGroupService.DeleteToolGroup(name); err != nil {
 			errs = append(errs, fmt.Errorf("failed to delete managed group %s after file removal: %w", name, err))
 			continue
@@ -541,27 +600,37 @@ func (s *Service) reconcileGroups() error {
 			errs = append(errs, fmt.Errorf("failed to remove tracking for group %s: %w", name, err))
 		}
 	}
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
 	return nil
 }
 
+// groupEqual compares two ToolGroup models for equality based on their relevant fields.
 func groupEqual(a, b *model.ToolGroup) bool {
 	return a.Name == b.Name && a.Description == b.Description && slices.Equal(a.IncludedTools, b.IncludedTools) && slices.Equal(a.IncludedServers, b.IncludedServers) && slices.Equal(a.ExcludedTools, b.ExcludedTools)
 }
 
+// reconcileUsers syncs user accounts based on config files in the users directory.
 func (s *Service) reconcileUsers() error {
-	desired, blocked, parseErrs := loadDesired[types.UserConfig](filepath.Join(s.opts.Dir, types.ConfigSyncUsersDirName), func(i types.UserConfig) string { return i.Username })
+	// load the desired state of all users
+	userDir := filepath.Join(s.opts.Dir, types.ConfigSyncUsersDirName)
+	desired, blocked, parseErrs := loadDesired[types.UserConfig](userDir, func(i types.UserConfig) string { return i.Username })
+
+	// load the current state of all users from db
 	managed, err := s.loadManaged(model.EntityTypeUser)
 	if err != nil {
 		return err
 	}
+
 	var errs []error
 	errs = append(errs, parseErrs...)
 
+	// for each desired user config, ensure the corresponding user exists with the correct attributes
+	// also track the desired state config if not already tracked
 	for name, d := range desired {
-		accessToken, err := resolveAccessTokenFromConfig(d.entity.AccessToken, d.entity.AccessTokenRef)
+		accessToken, err := d.entity.AccessTokenRef.ResolveAccessToken(d.entity.AccessToken)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to resolve access token in %s: %w", d.path, err))
 			continue
@@ -571,28 +640,34 @@ func (s *Service) reconcileUsers() error {
 			continue
 		}
 
-		var existing model.User
-		err = s.services.DB.Where("username = ?", name).First(&existing).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			errs = append(errs, fmt.Errorf("failed to fetch user %s: %w", name, err))
-			continue
-		}
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			if err := s.services.DB.Create(&model.User{Username: name, Role: types.UserRoleUser, AccessToken: accessToken}).Error; err != nil {
+		existing, err := s.services.UserService.GetUser(name)
+		if err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				// unexpected error
+				errs = append(errs, fmt.Errorf("failed to fetch user %s: %w", name, err))
+				continue
+			}
+
+			// user doesn't exist in db, create one
+			newUser := &model.User{Username: name, AccessToken: accessToken}
+			_, err := s.services.UserService.CreateUser(newUser)
+			if err != nil {
 				errs = append(errs, fmt.Errorf("failed to create user %s: %w", name, err))
 				continue
 			}
-		} else {
-			if existing.Role == types.UserRoleAdmin {
-				errs = append(errs, fmt.Errorf("config sync cannot manage admin user %s (file: %s)", name, d.path))
+		}
+
+		// by this point, the user definitely exists. check for updates to any attributes.
+		if existing.Role == types.UserRoleAdmin {
+			errs = append(errs, fmt.Errorf("config sync cannot manage admin user %s (file: %s)", name, d.path))
+			continue
+		}
+		if existing.AccessToken != accessToken {
+			existing.AccessToken = accessToken
+			_, err := s.services.UserService.UpdateUser(existing)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed to update user %s: %w", name, err))
 				continue
-			}
-			if existing.AccessToken != accessToken {
-				existing.AccessToken = accessToken
-				if err := s.services.DB.Save(&existing).Error; err != nil {
-					errs = append(errs, fmt.Errorf("failed to update user %s: %w", name, err))
-					continue
-				}
 			}
 		}
 
@@ -600,6 +675,9 @@ func (s *Service) reconcileUsers() error {
 			errs = append(errs, fmt.Errorf("failed to track user %s: %w", name, err))
 		}
 	}
+
+	// for each tracked user config, if the corresponding config file is now missing and there are no errors
+	// blocking deletion, delete the user and stop tracking it
 	for name, trackedRow := range managed {
 		if _, ok := desired[name]; ok {
 			continue
@@ -607,20 +685,26 @@ func (s *Service) reconcileUsers() error {
 		if blocked[trackedRow.FilePath] || fileExists(trackedRow.FilePath) {
 			continue
 		}
-		var user model.User
-		if err := s.services.DB.Where("username = ?", name).First(&user).Error; err != nil {
+
+		// the user is no longer desired at this point
+		managedUser, err := s.services.UserService.GetUser(name)
+		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// if the user is already gone, stop tracking its config in the system as well
 				_ = s.deleteManagedRow(model.EntityTypeUser, name)
 				continue
 			}
 			errs = append(errs, fmt.Errorf("failed to fetch managed user %s during deletion: %w", name, err))
 			continue
 		}
-		if user.Role == types.UserRoleAdmin {
+
+		if managedUser.Role == types.UserRoleAdmin {
 			errs = append(errs, fmt.Errorf("config sync cannot delete admin user %s", name))
 			continue
 		}
-		if err := s.services.DB.Unscoped().Where("username = ?", name).Delete(&model.User{}).Error; err != nil {
+
+		// delete the user and stop tracking its config
+		if err := s.services.UserService.DeleteUser(name); err != nil {
 			errs = append(errs, fmt.Errorf("failed to delete managed user %s after file removal: %w", name, err))
 			continue
 		}
@@ -628,46 +712,18 @@ func (s *Service) reconcileUsers() error {
 			errs = append(errs, fmt.Errorf("failed to remove tracking for user %s: %w", name, err))
 		}
 	}
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
 	return nil
 }
 
+// fileExists checks if a file exists at the given path. It returns false if the path is empty or only whitespace.
 func fileExists(path string) bool {
 	if strings.TrimSpace(path) == "" {
 		return false
 	}
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func resolveAccessTokenFromConfig(accessToken string, ref types.AccessTokenRef) (string, error) {
-	if strings.TrimSpace(accessToken) != "" {
-		return strings.TrimSpace(accessToken), nil
-	}
-	if strings.TrimSpace(ref.Env) != "" {
-		v, ok := os.LookupEnv(ref.Env)
-		if ok {
-			v = strings.TrimSpace(v)
-			if v != "" {
-				return v, nil
-			}
-		}
-		if strings.TrimSpace(ref.File) == "" {
-			return "", fmt.Errorf("environment variable %s is not set or empty", ref.Env)
-		}
-	}
-	if strings.TrimSpace(ref.File) != "" {
-		data, err := os.ReadFile(ref.File)
-		if err != nil {
-			return "", fmt.Errorf("failed to read access token file %s: %w", ref.File, err)
-		}
-		v := strings.TrimSpace(string(data))
-		if v == "" {
-			return "", fmt.Errorf("access token file %s is empty", ref.File)
-		}
-		return v, nil
-	}
-	return "", nil
 }

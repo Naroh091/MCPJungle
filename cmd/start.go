@@ -481,17 +481,20 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create Tool Group service: %v", err)
 	}
 
-	configSyncService, err := configsync.New(configsync.Options{
+	csOpts := configsync.Options{
 		Enabled: getConfigSyncEnabled(),
 		Dir:     getConfigSyncDir(),
-	}, configsync.Services{
-		DB:               dbConn,
+	}
+	csServices := configsync.Services{
 		MCPService:       mcpService,
 		ToolGroupService: toolGroupService,
-	})
+		MCPClientService: mcpClientService,
+	}
+	configSyncService, err := configsync.New(csOpts, dbConn, csServices)
 	if err != nil {
 		return fmt.Errorf("failed to initialize config sync service: %w", err)
 	}
+
 	if err := configSyncService.Start(cmd.Context()); err != nil {
 		return fmt.Errorf("failed to start config sync service: %w", err)
 	}
