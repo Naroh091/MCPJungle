@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mcpjungle/mcpjungle/pkg/accesstoken"
 	"github.com/mcpjungle/mcpjungle/pkg/configfiles"
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 	"github.com/spf13/cobra"
@@ -180,7 +181,10 @@ func runCreateMcpClient(cmd *cobra.Command, args []string) error {
 			Description: config.Description,
 			AllowList:   config.AllowMcpServers,
 		}
-		accessToken, err := config.AccessTokenRef.ResolveAccessToken(config.AccessToken)
+		accessToken, err := accesstoken.Resolve(accesstoken.Input{
+			Inline: config.AccessToken,
+			Ref:    config.AccessTokenRef,
+		})
 		if err != nil {
 			return err
 		}
@@ -244,7 +248,10 @@ func runCreateUser(cmd *cobra.Command, args []string) error {
 		if config.Username == "" {
 			return fmt.Errorf("config file must define a username")
 		}
-		accessToken, err := config.AccessTokenRef.ResolveAccessToken(config.AccessToken)
+		accessToken, err := accesstoken.Resolve(accesstoken.Input{
+			Inline: config.AccessToken,
+			Ref:    config.AccessTokenRef,
+		})
 		if err != nil {
 			return err
 		}

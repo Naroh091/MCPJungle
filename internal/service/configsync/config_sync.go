@@ -19,6 +19,7 @@ import (
 	"github.com/mcpjungle/mcpjungle/internal/service/mcpclient"
 	"github.com/mcpjungle/mcpjungle/internal/service/toolgroup"
 	"github.com/mcpjungle/mcpjungle/internal/service/user"
+	"github.com/mcpjungle/mcpjungle/pkg/accesstoken"
 	"github.com/mcpjungle/mcpjungle/pkg/configfiles"
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 	"gorm.io/datatypes"
@@ -371,7 +372,10 @@ func (s *Service) reconcileMcpClients() error {
 			continue
 		}
 
-		accessToken, err := d.Entity.AccessTokenRef.ResolveAccessToken(d.Entity.AccessToken)
+		accessToken, err := accesstoken.Resolve(accesstoken.Input{
+			Inline: d.Entity.AccessToken,
+			Ref:    d.Entity.AccessTokenRef,
+		})
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to resolve access token in %s: %w", d.Path, err))
 			continue
@@ -564,7 +568,10 @@ func (s *Service) reconcileUsers() error {
 	// for each desired user config, ensure the corresponding user exists with the correct attributes
 	// also track the desired state config if not already tracked
 	for name, d := range desired {
-		accessToken, err := d.Entity.AccessTokenRef.ResolveAccessToken(d.Entity.AccessToken)
+		accessToken, err := accesstoken.Resolve(accesstoken.Input{
+			Inline: d.Entity.AccessToken,
+			Ref:    d.Entity.AccessTokenRef,
+		})
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to resolve access token in %s: %w", d.Path, err))
 			continue
