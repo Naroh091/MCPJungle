@@ -294,7 +294,7 @@ func (s *Service) reconcileMcpServers(ctx context.Context) error {
 			track = model.ManagedConfigFile{EntityName: name}
 		}
 
-		if tracked && track.FileHash == d.Hash {
+		if track.FileHash == d.Hash {
 			continue
 		}
 
