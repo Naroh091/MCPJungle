@@ -241,7 +241,11 @@ func (s *Service) deleteManagedRow(entityType model.EntityType, name string) err
 }
 
 func (s *Service) reconcileMcpServers(ctx context.Context) error {
-	desired, blocked, parseErrs := configfiles.LoadDesired[types.RegisterServerInput](filepath.Join(s.opts.Dir, types.ConfigSyncMcpServersDirName), func(i types.RegisterServerInput) string { return i.Name })
+	mcpServersDir := filepath.Join(s.opts.Dir, types.ConfigSyncMcpServersDirName)
+	desired, blocked, parseErrs := configfiles.LoadDesired[types.RegisterServerInput](
+		mcpServersDir,
+		func(i types.RegisterServerInput) string { return i.Name },
+	)
 
 	managed, err := s.loadManaged(model.EntityTypeMcpServer)
 	if err != nil {
@@ -278,6 +282,7 @@ func (s *Service) reconcileMcpServers(ctx context.Context) error {
 
 		track, tracked := managed[name]
 		if errors.Is(getErr, mcp.ErrMCPServerNotFound) {
+			// server is desired but doesn't yet exist, create it and start tracking it
 			if err := s.services.MCPService.RegisterMcpServer(ctx, server); err != nil {
 				errs = append(errs, fmt.Errorf("failed to create mcp server %s from %s: %w", name, d.Path, err))
 				continue
@@ -288,17 +293,14 @@ func (s *Service) reconcileMcpServers(ctx context.Context) error {
 			continue
 		}
 
-		if !tracked {
-			// adopt existing manually managed entity
-			tracked = true
-			track = model.ManagedConfigFile{EntityName: name}
-		}
-
-		if track.FileHash == d.Hash {
+		if tracked && track.FileHash == d.Hash {
+			// server is already tracked and the config hasn't changed since the last time we applied it,
+			// so we can skip any updates for this server
 			continue
 		}
 
 		if !serverEqual(existing, server) {
+			// server exists but is different from the desired state, update it.
 			if err := s.services.MCPService.DeregisterMcpServer(name); err != nil {
 				errs = append(errs, fmt.Errorf("failed to deregister mcp server %s for update: %w", name, err))
 				continue
@@ -337,6 +339,7 @@ func (s *Service) reconcileMcpServers(ctx context.Context) error {
 	return nil
 }
 
+// newServerFromInput creates a model.McpServer from the given RegisterServerInput, transport, and session mode.
 func newServerFromInput(input types.RegisterServerInput, transport types.McpServerTransport, sessionMode types.SessionMode) (*model.McpServer, error) {
 	switch transport {
 	case types.TransportStreamableHTTP:
