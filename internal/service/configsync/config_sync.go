@@ -104,6 +104,7 @@ func (s *Service) Stop() {
 	if !s.opts.Enabled {
 		return
 	}
+	log.Printf("[config-sync] stopping configuration syncing")
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -217,6 +218,14 @@ func toJSON(v any) (datatypes.JSON, error) {
 	return datatypes.JSON(b), nil
 }
 
+func logDesiredConfigChange(entityType, action, name, path string) {
+	if strings.TrimSpace(path) == "" {
+		log.Printf("[config-sync] desired config change: %s %s %q", action, entityType, name)
+		return
+	}
+	log.Printf("[config-sync] desired config change: %s %s %q (source: %s)", action, entityType, name, path)
+}
+
 func (s *Service) createOrUpdateManagedRow(entityType model.EntityType, name, path, hash string) error {
 	var row model.ManagedConfigFile
 	err := s.db.Where("entity_type = ? AND entity_name = ?", entityType, name).First(&row).Error
@@ -283,6 +292,7 @@ func (s *Service) reconcileMcpServers(ctx context.Context) error {
 		track, tracked := managed[name]
 		if errors.Is(getErr, mcp.ErrMCPServerNotFound) {
 			// server is desired but doesn't yet exist, create it and start tracking it
+			logDesiredConfigChange("mcp server", "create", name, d.Path)
 			if err := s.services.MCPService.RegisterMcpServer(ctx, server); err != nil {
 				errs = append(errs, fmt.Errorf("failed to create mcp server %s from %s: %w", name, d.Path, err))
 				continue
@@ -301,6 +311,7 @@ func (s *Service) reconcileMcpServers(ctx context.Context) error {
 
 		if !serverEqual(existing, server) {
 			// server exists but is different from the desired state, update it.
+			logDesiredConfigChange("mcp server", "update", name, d.Path)
 			if err := s.services.MCPService.DeregisterMcpServer(name); err != nil {
 				errs = append(errs, fmt.Errorf("failed to deregister mcp server %s for update: %w", name, err))
 				continue
@@ -324,6 +335,7 @@ func (s *Service) reconcileMcpServers(ctx context.Context) error {
 		if blocked[trackedRow.FilePath] || fileExists(trackedRow.FilePath) {
 			continue
 		}
+		logDesiredConfigChange("mcp server", "delete", name, trackedRow.FilePath)
 		if err := s.services.MCPService.DeregisterMcpServer(name); err != nil {
 			errs = append(errs, fmt.Errorf("failed to delete managed mcp server %s after file removal: %w", name, err))
 			continue
@@ -395,6 +407,7 @@ func (s *Service) reconcileMcpClients() error {
 		}
 		if errors.Is(err, mcpclient.ErrMCPClientNotFound) {
 			// client is desired but doesn't yet exist, create it
+			logDesiredConfigChange("mcp client", "create", name, d.Path)
 			newClient := model.McpClient{
 				Name:        name,
 				Description: d.Entity.Description,
@@ -409,6 +422,7 @@ func (s *Service) reconcileMcpClients() error {
 		} else {
 			// by this point, the client definitely exists. check for updates to any attributes.
 			if existing.Description != d.Entity.Description || existing.AccessToken != accessToken || !slices.Equal(existing.AllowList, allowJSON) {
+				logDesiredConfigChange("mcp client", "update", name, d.Path)
 				existing.Description = d.Entity.Description
 				existing.AccessToken = accessToken
 				existing.AllowList = allowJSON
@@ -437,6 +451,7 @@ func (s *Service) reconcileMcpClients() error {
 		}
 
 		// client is no longer desired, delete it and stop tracking
+		logDesiredConfigChange("mcp client", "delete", name, trackedRow.FilePath)
 		if err := s.services.MCPClientService.DeleteClient(name); err != nil {
 			errs = append(errs, fmt.Errorf("failed to delete managed mcp client %s after file removal: %w", name, err))
 			continue
@@ -498,6 +513,7 @@ func (s *Service) reconcileGroups() error {
 		if err != nil {
 			if errors.Is(err, toolgroup.ErrToolGroupNotFound) {
 				// group is desired but doesn't yet exist, create it
+				logDesiredConfigChange("group", "create", name, d.Path)
 				if err := s.services.ToolGroupService.CreateToolGroup(groupModel); err != nil {
 					errs = append(errs, fmt.Errorf("failed to create group %s from %s: %w", name, d.Path, err))
 					continue
@@ -510,6 +526,7 @@ func (s *Service) reconcileGroups() error {
 			if !tracked || !groupEqual(old, groupModel) {
 				// group exists but is either not tracked (manually created) or has drifted from the desired state,
 				// update it
+				logDesiredConfigChange("group", "update", name, d.Path)
 				if _, err := s.services.ToolGroupService.UpdateToolGroup(name, groupModel); err != nil {
 					errs = append(errs, fmt.Errorf("failed to update group %s from %s: %w", name, d.Path, err))
 					continue
@@ -533,6 +550,7 @@ func (s *Service) reconcileGroups() error {
 			continue
 		}
 
+		logDesiredConfigChange("group", "delete", name, trackedRow.FilePath)
 		if err := s.services.ToolGroupService.DeleteToolGroup(name); err != nil {
 			errs = append(errs, fmt.Errorf("failed to delete managed group %s after file removal: %w", name, err))
 			continue
@@ -593,6 +611,7 @@ func (s *Service) reconcileUsers() error {
 			}
 
 			// user doesn't exist in db, create one
+			logDesiredConfigChange("user", "create", name, d.Path)
 			newUser := &model.User{Username: name, AccessToken: accessToken}
 			createdUser, err := s.services.UserService.CreateUser(newUser)
 			if err != nil {
@@ -608,6 +627,7 @@ func (s *Service) reconcileUsers() error {
 			continue
 		}
 		if existing.AccessToken != accessToken {
+			logDesiredConfigChange("user", "update", name, d.Path)
 			existing.AccessToken = accessToken
 			_, err := s.services.UserService.UpdateUser(existing)
 			if err != nil {
@@ -649,6 +669,7 @@ func (s *Service) reconcileUsers() error {
 		}
 
 		// delete the user and stop tracking its config
+		logDesiredConfigChange("user", "delete", name, trackedRow.FilePath)
 		if err := s.services.UserService.DeleteUser(name); err != nil {
 			errs = append(errs, fmt.Errorf("failed to delete managed user %s after file removal: %w", name, err))
 			continue
