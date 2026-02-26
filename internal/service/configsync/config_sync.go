@@ -28,8 +28,15 @@ import (
 
 // Options configures config directory synchronization.
 type Options struct {
+	// Enabled determines whether config syncing is active. If false, the service will be a no-op.
 	Enabled bool
-	Dir     string
+
+	// Dir is the directory to watch for config files.
+	Dir string
+
+	// EnableEnterpriseEntitySync should be set to true to allow syncing of enterprise entities like mcp clients and users.
+	// If false, those entities will be ignored by the sync process.
+	EnableEnterpriseEntitySync bool
 }
 
 // Services groups the external services that the config sync service depends on to do its job.
@@ -67,6 +74,7 @@ func (s *Service) Start(ctx context.Context) error {
 	if !s.opts.Enabled {
 		return nil
 	}
+	log.Printf("[config-sync] starting configuration syncing")
 	if err := s.ensureSubDirs(); err != nil {
 		return err
 	}
@@ -368,6 +376,10 @@ func serverEqual(a, b *model.McpServer) bool {
 }
 
 func (s *Service) reconcileMcpClients() error {
+	if !s.opts.EnableEnterpriseEntitySync {
+		return nil
+	}
+
 	desired, blocked, parseErrs := configfiles.LoadDesired[types.McpClientConfig](filepath.Join(s.opts.Dir, types.ConfigSyncMcpClientsDirName), func(i types.McpClientConfig) string { return i.Name })
 
 	managed, err := s.loadManaged(model.EntityTypeMcpClient)
@@ -573,6 +585,10 @@ func groupEqual(a, b *model.ToolGroup) bool {
 
 // reconcileUsers syncs user accounts based on config files in the users directory.
 func (s *Service) reconcileUsers() error {
+	if !s.opts.EnableEnterpriseEntitySync {
+		return nil
+	}
+
 	// load the desired state of all users
 	userDir := filepath.Join(s.opts.Dir, types.ConfigSyncUsersDirName)
 	desired, blocked, parseErrs := configfiles.LoadDesired[types.UserConfig](userDir, func(i types.UserConfig) string { return i.Username })

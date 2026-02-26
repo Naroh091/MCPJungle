@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -481,9 +482,11 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create Tool Group service: %v", err)
 	}
 
+	// setup configuration syncing
 	csOpts := configsync.Options{
-		Enabled: getConfigSyncEnabled(),
-		Dir:     getConfigSyncDir(),
+		Enabled:                    getConfigSyncEnabled(),
+		Dir:                        getConfigSyncDir(),
+		EnableEnterpriseEntitySync: model.IsEnterpriseMode(desiredServerMode),
 	}
 	csServices := configsync.Services{
 		MCPService:       mcpService,
@@ -495,8 +498,16 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize config sync service: %w", err)
 	}
 
-	if err := configSyncService.Start(cmd.Context()); err != nil {
-		return fmt.Errorf("failed to start config sync service: %w", err)
+	// config sync should only start after mcpjungle server is initialized
+	// this callback is therefore intended to be called post initialization,
+	// and also on startup if the server is already initialized.
+	var configSyncStartOnce sync.Once
+	startConfigSyncWhenReady := func(reason string) {
+		configSyncStartOnce.Do(func() {
+			if err := configSyncService.Start(cmd.Context()); err != nil {
+				log.Printf("[config-sync] failed to start configuration sync (%s): %v", reason, err)
+			}
+		})
 	}
 	defer configSyncService.Stop()
 
@@ -511,6 +522,10 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		ToolGroupService:  toolGroupService,
 		OtelProviders:     otelProviders,
 		Metrics:           mcpMetrics,
+
+		OnInitialized: func(mode model.ServerMode) {
+			startConfigSyncWhenReady("initialize mcpjungle server")
+		},
 	}
 	s, err := api.NewServer(opts)
 	if err != nil {
@@ -535,6 +550,9 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 				mode, desiredServerMode,
 			)
 		}
+
+		// since mcpjungle is already initialized, we can start config sync already
+		startConfigSyncWhenReady("mcpjungle server startup")
 	} else {
 		// If server isn't already initialized and the desired mode is dev, silently initialize the server.
 		// Individual (dev mode) users need not worry about server initialization.
@@ -542,6 +560,9 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 			if err := s.InitDev(); err != nil {
 				return fmt.Errorf("failed to initialize server in development mode: %v", err)
 			}
+
+			// since the server is now initialized, we can start config sync
+			startConfigSyncWhenReady("auto-initialize mcpjungle server")
 		} else {
 			// If desired mode is enterprise, then server initialization is a manual next step to be taken by the user.
 			// This is so that they can obtain the admin access token on their client machine.
@@ -549,6 +570,9 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 				"Starting server in Enterprise mode," +
 					" don't forget to initialize it by running the `init-server` command",
 			)
+			if csOpts.Enabled {
+				cmd.Println("Configuration syncing is enabled, but it will only work after server initialization.")
+			}
 		}
 	}
 
