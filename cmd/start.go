@@ -492,6 +492,7 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		MCPService:       mcpService,
 		ToolGroupService: toolGroupService,
 		MCPClientService: mcpClientService,
+		UserService:      userService,
 	}
 	configSyncService, err := configsync.New(csOpts, dbConn, csServices)
 	if err != nil {
@@ -524,7 +525,7 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		Metrics:           mcpMetrics,
 
 		OnInitialized: func(mode model.ServerMode) {
-			startConfigSyncWhenReady("initialize mcpjungle server")
+			startConfigSyncWhenReady(fmt.Sprintf("initialize mcpjungle server in %s mode", mode))
 		},
 	}
 	s, err := api.NewServer(opts)
@@ -566,12 +567,12 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		} else {
 			// If desired mode is enterprise, then server initialization is a manual next step to be taken by the user.
 			// This is so that they can obtain the admin access token on their client machine.
-			cmd.Println(
-				"Starting server in Enterprise mode," +
+			log.Println(
+				"[server] starting server in Enterprise mode," +
 					" don't forget to initialize it by running the `init-server` command",
 			)
 			if csOpts.Enabled {
-				cmd.Println("Configuration syncing is enabled, but it will only work after server initialization.")
+				log.Println("[server] configuration syncing is enabled, but it will only work after server initialization.")
 			}
 		}
 	}

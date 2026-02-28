@@ -58,13 +58,24 @@ type Service struct {
 }
 
 func New(opts Options, db *gorm.DB, services Services) (*Service, error) {
+	cs := &Service{opts: opts, db: db, services: services}
+
+	if !opts.Enabled {
+		// if syncing is not enabled, we can skip all the validation of dependencies and just return the service
+		// as-is, since it will be a no-op
+		return cs, nil
+	}
+
 	if db == nil || services.MCPService == nil || services.ToolGroupService == nil {
 		return nil, fmt.Errorf("config sync requires DB, MCP service and ToolGroup service")
+	}
+	if opts.EnableEnterpriseEntitySync && (services.UserService == nil || services.MCPClientService == nil) {
+		return nil, fmt.Errorf("config sync with enterprise entity syncing enabled requires User service and MCP Client service")
 	}
 	if opts.Dir == "" {
 		return nil, fmt.Errorf("config sync requires a directory to watch")
 	}
-	return &Service{opts: opts, db: db, services: services}, nil
+	return cs, nil
 }
 
 // Start begins watching the config directory for changes in the background and reconciling them with mcpjungle.

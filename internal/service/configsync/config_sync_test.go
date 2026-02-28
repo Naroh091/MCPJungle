@@ -8,7 +8,9 @@ import (
 
 	"github.com/mcpjungle/mcpjungle/internal/migrations"
 	"github.com/mcpjungle/mcpjungle/internal/model"
+	"github.com/mcpjungle/mcpjungle/internal/service/mcp"
 	"github.com/mcpjungle/mcpjungle/internal/service/mcpclient"
+	"github.com/mcpjungle/mcpjungle/internal/service/toolgroup"
 	"github.com/mcpjungle/mcpjungle/internal/service/user"
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 	"gorm.io/driver/sqlite"
@@ -25,6 +27,112 @@ func newTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("failed to migrate db: %v", err)
 	}
 	return db
+}
+
+func TestNew_DisabledSyncSkipsDependencyValidation(t *testing.T) {
+	s, err := New(Options{Enabled: false}, nil, Services{})
+	if err != nil {
+		t.Fatalf("expected disabled config sync constructor to succeed, got: %v", err)
+	}
+	if s == nil {
+		t.Fatal("expected non-nil service")
+	}
+}
+
+func TestNew_EnabledRequiresCoreDependencies(t *testing.T) {
+	db := newTestDB(t)
+
+	tests := []struct {
+		name     string
+		db       *gorm.DB
+		services Services
+	}{
+		{
+			name:     "missing db",
+			db:       nil,
+			services: Services{MCPService: &mcp.MCPService{}, ToolGroupService: &toolgroup.ToolGroupService{}},
+		},
+		{
+			name:     "missing mcp service",
+			db:       db,
+			services: Services{ToolGroupService: &toolgroup.ToolGroupService{}},
+		},
+		{
+			name:     "missing toolgroup service",
+			db:       db,
+			services: Services{MCPService: &mcp.MCPService{}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := New(Options{
+				Enabled: true,
+				Dir:     t.TempDir(),
+			}, tt.db, tt.services)
+			if err == nil {
+				t.Fatal("expected constructor error")
+			}
+			if !strings.Contains(err.Error(), "requires DB, MCP service and ToolGroup service") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNew_EnabledRequiresDir(t *testing.T) {
+	db := newTestDB(t)
+	_, err := New(Options{
+		Enabled: true,
+		Dir:     "",
+	}, db, Services{
+		MCPService:       &mcp.MCPService{},
+		ToolGroupService: &toolgroup.ToolGroupService{},
+	})
+	if err == nil {
+		t.Fatal("expected constructor error")
+	}
+	if !strings.Contains(err.Error(), "requires a directory to watch") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNew_EnterpriseSyncRequiresUserAndMcpClientServices(t *testing.T) {
+	db := newTestDB(t)
+	_, err := New(Options{
+		Enabled:                    true,
+		Dir:                        t.TempDir(),
+		EnableEnterpriseEntitySync: true,
+	}, db, Services{
+		MCPService:       &mcp.MCPService{},
+		ToolGroupService: &toolgroup.ToolGroupService{},
+	})
+	if err == nil {
+		t.Fatal("expected constructor error")
+	}
+	if !strings.Contains(err.Error(), "requires User service and MCP Client service") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNew_EnterpriseSyncWithAllDependenciesSucceeds(t *testing.T) {
+	db := newTestDB(t)
+	svc, err := New(Options{
+		Enabled:                    true,
+		Dir:                        t.TempDir(),
+		EnableEnterpriseEntitySync: true,
+	}, db, Services{
+		MCPService:       &mcp.MCPService{},
+		ToolGroupService: &toolgroup.ToolGroupService{},
+		UserService:      user.NewUserService(db),
+		MCPClientService: mcpclient.NewMCPClientService(db),
+	})
+	if err != nil {
+		t.Fatalf("expected constructor success, got: %v", err)
+	}
+	if svc == nil {
+		t.Fatal("expected non-nil service")
+	}
 }
 
 func TestReconcileUsers_AdminUserIsRejected(t *testing.T) {
