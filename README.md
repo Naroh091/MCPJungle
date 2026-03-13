@@ -363,9 +363,14 @@ The config file format for registering a STDIO-based MCP server is:
 }
 ```
 
+You can also watch a quick video on [How to register a STDIO-based MCP server](https://youtu.be/YqHiuexR5fw).
+
+> [!TIP]
+> If your STDIO server fails or throws errors for some reason, check the mcpjungle server's logs to view its `stderr` output.
+
 #### Environment variables in JSON config files
 
-When you use a JSON config file with `mcpjungle register`, `mcpjungle create mcp-client`, `mcpjungle create user`, or `mcpjungle create group`, the CLI can resolve environment variable placeholders in string values before sending the request to the server.
+When you use a JSON config file to register a mcp server or create other entities like tol groups, the CLI can resolve environment variable placeholders in string values before sending the request to the server.
 
 - Only placeholders written as `${VAR_NAME}` are resolved.
 - Placeholders can appear anywhere inside a string value, for example `prefix-${VAR_NAME}-suffix`.
@@ -401,11 +406,6 @@ Example STDIO config:
   }
 }
 ```
-
-You can also watch a quick video on [How to register a STDIO-based MCP server](https://youtu.be/YqHiuexR5fw).
-
-> [!TIP]
-> If your STDIO server fails or throws errors for some reason, check the mcpjungle server's logs to view its `stderr` output.
 
 **Caveat** ⚠️
 
