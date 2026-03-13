@@ -96,6 +96,16 @@ func TestRegisterCommandFlags(t *testing.T) {
 		}
 	})
 
+	t.Run("register command has force flag", func(t *testing.T) {
+		forceFlag := registerMCPServerCmd.Flags().Lookup("force")
+		if forceFlag == nil {
+			t.Fatal("Register command missing 'force' flag")
+		}
+		if forceFlag.Usage == "" {
+			t.Error("Force flag should have usage description")
+		}
+	})
+
 	t.Run("register command has conf flag with short form", func(t *testing.T) {
 		// The StringVarP creates both "conf" and "c" flags
 		confFlag := registerMCPServerCmd.Flags().Lookup("conf")
@@ -123,6 +133,9 @@ func TestRegisterCommandVariables(t *testing.T) {
 		}
 		if registerCmdServerConfigFilePath != "" {
 			t.Errorf("Expected registerCmdServerConfigFilePath to be empty, got %s", registerCmdServerConfigFilePath)
+		}
+		if registerCmdForce != false {
+			t.Errorf("Expected registerCmdForce to be false, got %v", registerCmdForce)
 		}
 	})
 }

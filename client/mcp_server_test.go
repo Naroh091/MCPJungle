@@ -55,7 +55,7 @@ func TestRegisterServer(t *testing.T) {
 			Command:   "/usr/bin/test-server",
 		}
 
-		response, err := client.RegisterServer(serverInput)
+		response, err := client.RegisterServer(serverInput, false)
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
@@ -68,6 +68,27 @@ func TestRegisterServer(t *testing.T) {
 		}
 		if response.Command != expectedServer.Command {
 			t.Errorf("Expected Command %s, got %s", expectedServer.Command, response.Command)
+		}
+	})
+
+	t.Run("successful registration with force query parameter", func(t *testing.T) {
+		expectedServer := &types.McpServer{Name: "test-server", Transport: "stdio", Command: "/usr/bin/test-server"}
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("force") != "true" {
+				t.Errorf("Expected force=true query param, got %q", r.URL.RawQuery)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(expectedServer)
+		}))
+		defer server.Close()
+
+		client := NewClient(server.URL, "test-token", &http.Client{})
+		serverInput := &types.RegisterServerInput{Name: "test-server", Transport: "stdio", Command: "/usr/bin/test-server"}
+		_, err := client.RegisterServer(serverInput, true)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
 		}
 	})
 
@@ -85,7 +106,7 @@ func TestRegisterServer(t *testing.T) {
 			Command:   "/usr/bin/test-server",
 		}
 
-		response, err := client.RegisterServer(serverInput)
+		response, err := client.RegisterServer(serverInput, false)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -108,7 +129,7 @@ func TestRegisterServer(t *testing.T) {
 			Command:   "/usr/bin/test-server",
 		}
 
-		response, err := client.RegisterServer(serverInput)
+		response, err := client.RegisterServer(serverInput, false)
 
 		if err == nil {
 			t.Error("Expected error, got nil")

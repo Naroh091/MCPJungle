@@ -5,13 +5,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 )
 
 // RegisterServer registers a new MCP server with the registry.
-func (c *Client) RegisterServer(server *types.RegisterServerInput) (*types.McpServer, error) {
+func (c *Client) RegisterServer(server *types.RegisterServerInput, force bool) (*types.McpServer, error) {
 	u, _ := c.constructAPIEndpoint("/servers")
+	if force {
+		parsedURL, err := url.Parse(u)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse server registration endpoint: %w", err)
+		}
+		q := parsedURL.Query()
+		q.Set("force", "true")
+		parsedURL.RawQuery = q.Encode()
+		u = parsedURL.String()
+	}
 	body, err := json.Marshal(server)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize server data into JSON: %w", err)

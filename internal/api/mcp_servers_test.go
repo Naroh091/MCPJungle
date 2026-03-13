@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -243,6 +244,39 @@ func TestSessionModeValidation(t *testing.T) {
 			if isValid && m != tt.expectedMode {
 				t.Errorf("Expected session mode '%s' to be '%s', got '%s'",
 					tt.mode, tt.expectedMode, m)
+			}
+		})
+	}
+}
+
+func TestParseForceQueryParam(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name      string
+		target    string
+		want      bool
+		wantError bool
+	}{
+		{name: "missing force", target: "/api/v0/servers", want: false, wantError: false},
+		{name: "force true", target: "/api/v0/servers?force=true", want: true, wantError: false},
+		{name: "force false", target: "/api/v0/servers?force=false", want: false, wantError: false},
+		{name: "invalid force", target: "/api/v0/servers?force=maybe", want: false, wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			req := httptest.NewRequest("POST", tt.target, nil)
+			c.Request = req
+
+			got, err := parseForceQueryParam(c)
+			if (err != nil) != tt.wantError {
+				t.Fatalf("expected error=%v, got err=%v", tt.wantError, err)
+			}
+			if got != tt.want {
+				t.Fatalf("expected force=%v, got force=%v", tt.want, got)
 			}
 		})
 	}
