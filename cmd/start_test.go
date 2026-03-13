@@ -41,23 +41,26 @@ func TestStartCommandStructure(t *testing.T) {
 
 func TestStartCommandFlags(t *testing.T) {
 	t.Run("start command has port flag", func(t *testing.T) {
-		portFlag := startServerCmd.Flags().Lookup("port")
-		if portFlag == nil {
+		if portFlag := startServerCmd.Flags().Lookup("port"); portFlag == nil {
 			t.Fatal("Start command missing 'port' flag")
-		}
-		if portFlag.Usage == "" {
+		} else if portFlag.Usage == "" {
 			t.Error("Port flag should have usage description")
 		}
 	})
 
 	t.Run("start command has enterprise flag", func(t *testing.T) {
-		enterpriseFlag := startServerCmd.Flags().Lookup("enterprise")
-		prodFlag := startServerCmd.Flags().Lookup("enterprise")
-		if enterpriseFlag == nil && prodFlag == nil {
+		if enterpriseFlag := startServerCmd.Flags().Lookup("enterprise"); enterpriseFlag == nil {
 			t.Fatal("Start command missing 'enterprise' flag")
-		}
-		if enterpriseFlag.Usage == "" && prodFlag.Usage == "" {
+		} else if enterpriseFlag.Usage == "" {
 			t.Error("enterprise flag should have usage description")
+		}
+	})
+
+	t.Run("start command has prod flag", func(t *testing.T) {
+		if prodFlag := startServerCmd.Flags().Lookup("prod"); prodFlag == nil {
+			t.Fatal("Start command missing 'prod' flag")
+		} else if prodFlag.Usage == "" {
+			t.Error("prod flag should have usage description")
 		}
 	})
 }

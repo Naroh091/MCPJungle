@@ -47,61 +47,49 @@ func TestRegisterCommandStructure(t *testing.T) {
 
 func TestRegisterCommandFlags(t *testing.T) {
 	t.Run("register command has name flag", func(t *testing.T) {
-		nameFlag := registerMCPServerCmd.Flags().Lookup("name")
-		if nameFlag == nil {
+		if nameFlag := registerMCPServerCmd.Flags().Lookup("name"); nameFlag == nil {
 			t.Fatal("Register command missing 'name' flag")
-		}
-		if nameFlag.Usage == "" {
+		} else if nameFlag.Usage == "" {
 			t.Error("Name flag should have usage description")
 		}
 	})
 
 	t.Run("register command has url flag", func(t *testing.T) {
-		urlFlag := registerMCPServerCmd.Flags().Lookup("url")
-		if urlFlag == nil {
+		if urlFlag := registerMCPServerCmd.Flags().Lookup("url"); urlFlag == nil {
 			t.Fatal("Register command missing 'url' flag")
-		}
-		if urlFlag.Usage == "" {
+		} else if urlFlag.Usage == "" {
 			t.Error("URL flag should have usage description")
 		}
 	})
 
 	t.Run("register command has description flag", func(t *testing.T) {
-		descFlag := registerMCPServerCmd.Flags().Lookup("description")
-		if descFlag == nil {
+		if descFlag := registerMCPServerCmd.Flags().Lookup("description"); descFlag == nil {
 			t.Fatal("Register command missing 'description' flag")
-		}
-		if descFlag.Usage == "" {
+		} else if descFlag.Usage == "" {
 			t.Error("Description flag should have usage description")
 		}
 	})
 
 	t.Run("register command has bearer-token flag", func(t *testing.T) {
-		tokenFlag := registerMCPServerCmd.Flags().Lookup("bearer-token")
-		if tokenFlag == nil {
+		if tokenFlag := registerMCPServerCmd.Flags().Lookup("bearer-token"); tokenFlag == nil {
 			t.Fatal("Register command missing 'bearer-token' flag")
-		}
-		if tokenFlag.Usage == "" {
+		} else if tokenFlag.Usage == "" {
 			t.Error("Bearer-token flag should have usage description")
 		}
 	})
 
 	t.Run("register command has conf flag", func(t *testing.T) {
-		confFlag := registerMCPServerCmd.Flags().Lookup("conf")
-		if confFlag == nil {
+		if confFlag := registerMCPServerCmd.Flags().Lookup("conf"); confFlag == nil {
 			t.Fatal("Register command missing 'conf' flag")
-		}
-		if confFlag.Usage == "" {
+		} else if confFlag.Usage == "" {
 			t.Error("Conf flag should have usage description")
 		}
 	})
 
 	t.Run("register command has force flag", func(t *testing.T) {
-		forceFlag := registerMCPServerCmd.Flags().Lookup("force")
-		if forceFlag == nil {
+		if forceFlag := registerMCPServerCmd.Flags().Lookup("force"); forceFlag == nil {
 			t.Fatal("Register command missing 'force' flag")
-		}
-		if forceFlag.Usage == "" {
+		} else if forceFlag.Usage == "" {
 			t.Error("Force flag should have usage description")
 		}
 	})
