@@ -363,6 +363,45 @@ The config file format for registering a STDIO-based MCP server is:
 }
 ```
 
+#### Environment variables in JSON config files
+
+When you use a JSON config file with `mcpjungle register`, `mcpjungle create mcp-client`, `mcpjungle create user`, or `mcpjungle create group`, the CLI can resolve environment variable placeholders in string values before sending the request to the server.
+
+- Only placeholders written as `${VAR_NAME}` are resolved.
+- Placeholders can appear anywhere inside a string value, for example `prefix-${VAR_NAME}-suffix`.
+- Resolution happens in the CLI process, so the environment variable must be available where you run the command.
+- If a referenced environment variable is not set, the command fails with an error.
+- This applies to string fields across the JSON config, including nested objects and string arrays.
+
+Example MCP server config:
+
+```json
+{
+  "name": "affine-main",
+  "transport": "streamable_http",
+  "description": "AFFiNE workspace MCP server",
+  "url": "https://app.affine.pro/api/workspaces/${AFFINE_WORKSPACE_ID}/mcp",
+  "bearer_token": "${AFFINE_API_TOKEN}",
+  "headers": {
+    "X-Workspace": "${AFFINE_WORKSPACE_ID}"
+  }
+}
+```
+
+Example STDIO config:
+
+```json
+{
+  "name": "my-stdio-server",
+  "transport": "stdio",
+  "command": "uvx",
+  "args": ["my-server", "--workspace", "${WORKSPACE_ID}"],
+  "env": {
+    "API_TOKEN": "${API_TOKEN}"
+  }
+}
+```
+
 You can also watch a quick video on [How to register a STDIO-based MCP server](https://youtu.be/YqHiuexR5fw).
 
 > [!TIP]
@@ -835,6 +874,18 @@ There are 3 ways to provide the access token from configuration file:
 2. From a file using the `access_token_ref.file` field: The file should contain only the token string.
 3. From an environment variable using the `access_token_ref.env` field: The env var should contain the token string.
 
+You can also use `${VAR_NAME}` placeholders elsewhere in the same JSON config file. For example:
+
+```json
+{
+  "name": "${MCP_CLIENT_NAME}",
+  "allowed_servers": ["${PRIMARY_SERVER}", "time"],
+  "access_token_ref": {
+    "env": "CLIENT_TOKEN_ENV_NAME"
+  }
+}
+```
+
 #### Creating user accounts
 In addition to MCP clients, you can also create User accounts in mcpjungle for human users.
 
@@ -863,6 +914,8 @@ The config file format for creating a user is similar to that of an MCP client:
 ```
 
 Again, when using the config file, you **must** provide a custom access token.
+
+Just like other JSON config files in MCPJungle, user config files also support `${VAR_NAME}` placeholders in string fields.
 
 ### OpenTelemetry
 MCPJungle supports Prometheus-compatible OpenTelemetry Metrics for observability.

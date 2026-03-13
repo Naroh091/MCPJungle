@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mcpjungle/mcpjungle/internal/configresolver"
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 	"github.com/spf13/cobra"
 )
@@ -104,6 +105,9 @@ func readMcpServerConfig(filePath string) (types.RegisterServerInput, error) {
 	// Parse JSON config
 	if err := json.Unmarshal(data, &input); err != nil {
 		return input, fmt.Errorf("failed to parse config file: %w", err)
+	}
+	if err := configresolver.ResolveEnvVars(&input); err != nil {
+		return input, fmt.Errorf("failed to resolve config file environment variables: %w", err)
 	}
 
 	return input, nil
