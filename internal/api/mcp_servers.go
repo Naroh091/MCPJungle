@@ -93,14 +93,21 @@ func (s *Server) registerServerHandler() gin.HandlerFunc {
 		}
 
 		if force {
+			// If "force" option is set, we check if a server with the same name already exists. If it does, we deregister it before registering the new one.
 			if _, err := s.mcpService.GetMcpServer(input.Name); err == nil {
 				log.Printf("[INFO] force=true: deregistering existing MCP server %s before re-registration", input.Name)
 				if err := s.mcpService.DeregisterMcpServer(input.Name); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					c.JSON(
+						http.StatusInternalServerError,
+						gin.H{"error": fmt.Sprintf("Error deregistering existing server with name %s: %v", input.Name, err)},
+					)
 					return
 				}
 			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				c.JSON(
+					http.StatusInternalServerError,
+					gin.H{"error": fmt.Sprintf("Error checking for existing server with name %s: %v", input.Name, err)},
+				)
 				return
 			}
 		}

@@ -78,7 +78,7 @@ func init() {
 		&registerCmdForce,
 		"force",
 		false,
-		"Replace existing server with the same name by forcing re-registration",
+		"Forcefully register the server even if a server with the same name already exists. This will de-register the existing server, then register the new one.",
 	)
 
 	registerMCPServerCmd.Flags().StringVarP(

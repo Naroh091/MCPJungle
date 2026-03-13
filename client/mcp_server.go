@@ -23,6 +23,7 @@ func (c *Client) RegisterServer(server *types.RegisterServerInput, force bool) (
 		parsedURL.RawQuery = q.Encode()
 		u = parsedURL.String()
 	}
+
 	body, err := json.Marshal(server)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize server data into JSON: %w", err)
