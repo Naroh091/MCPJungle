@@ -2,7 +2,7 @@
   MCPJungle
 </h1>
 <p align="center">
-  Self-hosted MCP gateway. One endpoint for all your tools.
+  <strong>Self-hosted MCP gateway. One endpoint for all your tools.</strong>
 </p>
 <p align="center">
   <a href="https://docs.mcpjungle.com" style="text-decoration: none;">
@@ -19,25 +19,24 @@
 
 </p>
 
-MCPJungle aggregates multiple MCP servers into a single unified MCP endpoint.
+MCPJungle aggregates multiple MCP servers into a single MCP endpoint.
 
-It acts as a gateway MCP server that your AI clients connect to, enabling access to tools, prompts, and resources across all your MCP servers through one interface.
+It acts as a gateway that your AI clients connect to, providing unified access to tools, prompts, and resources across all MCP servers.
 
 ## Why MCPJungle?
 
 Without a gateway, MCP usage does not scale:
 
-- 🔗 Every client must connect to multiple MCP servers
-- 🧩 Tools and resources are fragmented
-- 🔐 Access control is duplicated across servers
-- 👁️ No centralized visibility
+- 🔗 Clients must connect to each MCP server separately
+- 🧩 Tools and resources are scattered across servers
+- 🔐 Access control is duplicated and inconsistent
+- 👁️ No centralized visibility into available tools
 
 MCPJungle introduces a single control layer:
 
 - 🎯 One MCP endpoint for all your servers
 - 🧰 Unified access to tools, prompts, and resources
 - 🛡️ Centralized discovery, access control, and observability
-
 
 ## Quickstart
 
@@ -47,12 +46,13 @@ This quickstart guide will show you how to:
 3. Connect your Claude Desktop to mcpjungle to access your MCP tools
 
 ### Start the server
-Run the following command to fetch the `docker-compose.yaml` and start the mcpjungle server:
+Fetch the `docker-compose.yaml` and start the mcpjungle server:
 ```bash
-curl -O \
-    https://raw.githubusercontent.com/mcpjungle/MCPJungle/refs/heads/main/docker-compose.yaml \
-    && docker compose up -d
+curl -O https://raw.githubusercontent.com/mcpjungle/MCPJungle/refs/heads/main/docker-compose.yaml
+docker compose up -d
 ```
+
+This exposes mcpjungle's streamable http mcp server at `http://localhost:8080/mcp` by default.
 
 ### Add an MCP server
 1. Download the `mcpjungle` CLI on your local machine either using brew or directly from the [Releases Page](https://github.com/mcpjungle/MCPJungle/releases).
@@ -64,6 +64,10 @@ brew install mcpjungle/mcpjungle/mcpjungle
 ```bash
 mcpjungle register --name context7 --url https://mcp.context7.com/mcp
 ```
+
+You should see output similar to this:
+
+![register-context7](./assets/register-context7.png)
 
 ### Connect to mcpjungle
 
@@ -94,8 +98,6 @@ Claude will then attempt to call the `context7__get-library-docs` tool via MCPJu
   <img src="./assets/quickstart-claude-call-tool.png" alt="claude calls context7 tool via mcpjungle" height="400">
 </p>
 
-Congratulations! 🎉
+You now have a working MCP setup with a single unified endpoint!
 
-You have successfully registered an MCP server in MCPJungle and called a tool from your AI client!
-
-You can now explore the complete documentation at [docs.mcpjungle.com](https://docs.mcpjungle.com/).
+Next, explore the complete documentation at [docs.mcpjungle.com](https://docs.mcpjungle.com/).
