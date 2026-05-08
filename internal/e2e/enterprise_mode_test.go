@@ -38,6 +38,31 @@ func TestE2E_EnterpriseMode_Unauthenticated_Returns401(t *testing.T) {
 	}
 }
 
+func TestE2E_EnterpriseMode_UI_NotServedAtRoot(t *testing.T) {
+	env := setupE2EServer(t, model.ModeEnterprise)
+
+	resp := env.do(t, http.MethodGet, "/", nil, "")
+	defer drain(resp)
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestE2E_EnterpriseMode_SystemEndpoint_ReportsUIDisabled(t *testing.T) {
+	env := setupE2EServer(t, model.ModeEnterprise)
+
+	resp := env.do(t, http.MethodGet, "/api/v0/system", nil, env.adminToken)
+	defer drain(resp)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body map[string]any
+	decodeJSON(t, resp, &body)
+	assert.Equal(t, true, body["initialized"])
+	assert.Equal(t, "enterprise", body["mode"])
+	assert.Equal(t, false, body["ui_enabled"])
+	assert.NotEmpty(t, body["version"])
+}
+
 func TestE2E_EnterpriseMode_RegularUser_CannotWrite(t *testing.T) {
 	env := setupE2EServer(t, model.ModeEnterprise)
 

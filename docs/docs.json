@@ -43,6 +43,7 @@
           {
             "group": "Servers and Tools",
             "pages": [
+              "guides/dev-ui",
               "guides/register-http-servers",
               "guides/register-stdio-servers",
               "guides/tools-and-prompts",

@@ -5,6 +5,8 @@ description: "Overview of mcpjungle server REST API and how to interact with it.
 
 The Mcpjungle server exposes two families of HTTP endpoints: a REST management API under `/api/v0` for registering servers, invoking tools, and administering the system, and a set of MCP proxy endpoints that AI agents connect to directly. All responses are JSON unless otherwise noted.
 
+When MCPJungle runs in development mode, the built-in web UI is also served at `/` and uses this same management API.
+
 ## Base URL
 
 ```
@@ -75,6 +77,16 @@ Returns the running server version.
 ```json
 { "version": "0.4.2" }
 ```
+
+## Development UI endpoint
+
+When the server is running in **development mode**, MCPJungle also serves a built-in web UI at:
+
+```text
+GET /
+```
+
+This UI is not available in enterprise mode in v1.
 
 ## MCP proxy endpoints
 

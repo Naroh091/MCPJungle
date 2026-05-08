@@ -19,6 +19,7 @@ Mcpjungle consists of several main components:
 - **HTTP API**: REST API for management workflows in `internal/api/`
 - **MCP Gateway server**: MCP protocol handling in `internal/service/mcp/`
 - **Database layer**: SQLite and PostgreSQL persistence in `internal/db/`
+- **Development UI**: embedded browser UI assets and build workflow in `ui/`
 
 ## Codebase entry points
 
@@ -42,6 +43,21 @@ goreleaser release --clean --snapshot --skip publish
 # Binaries for all supported platforms
 goreleaser release --snapshot --clean
 ```
+
+### UI build
+
+The built-in development UI lives in `ui/`.
+
+Its static assets are committed to `ui/dist/` and embedded into the Go server binary.
+
+If you change files under `ui/src/`, rebuild the embedded assets with:
+
+```bash
+cd ui
+npm run build
+```
+
+Then run the usual Go tests or local server startup flow.
 
 ### Running tests
 
@@ -88,6 +104,13 @@ cd MCPJungle
 docker-compose up -d
 
 goreleaser build --single-target --clean --snapshot
+```
+
+If you want to work on the browser UI too:
+
+```bash
+cd ui
+npm run build
 ```
 
 ## Database development

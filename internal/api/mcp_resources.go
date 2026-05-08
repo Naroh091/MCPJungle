@@ -78,3 +78,39 @@ func (s *Server) readResourceHandler() gin.HandlerFunc {
 		c.JSON(http.StatusOK, resp)
 	}
 }
+
+func (s *Server) enableResourcesHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		entity := c.Query("entity")
+		if entity == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing 'entity' query parameter"})
+			return
+		}
+
+		enabledResources, err := s.mcpService.EnableResources(entity)
+		if err != nil {
+			handleServiceError(c, fmt.Errorf("failed to enable resource(s): %w", err))
+			return
+		}
+
+		c.JSON(http.StatusOK, enabledResources)
+	}
+}
+
+func (s *Server) disableResourcesHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		entity := c.Query("entity")
+		if entity == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing 'entity' query parameter"})
+			return
+		}
+
+		disabledResources, err := s.mcpService.DisableResources(entity)
+		if err != nil {
+			handleServiceError(c, fmt.Errorf("failed to disable resource(s): %w", err))
+			return
+		}
+
+		c.JSON(http.StatusOK, disabledResources)
+	}
+}

@@ -2,7 +2,9 @@ package e2e_test
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/mcpjungle/mcpjungle/internal/model"
@@ -136,4 +138,72 @@ func TestE2E_DevMode_NotFound_DeregisterMissingServer(t *testing.T) {
 	errMsg, ok := body["error"]
 	require.True(t, ok, "response must contain 'error' field")
 	require.Contains(t, string(errMsg), "not found")
+}
+
+func TestE2E_DevMode_UI_IsServedAtRoot(t *testing.T) {
+	env := setupE2EServer(t, model.ModeDev)
+
+	resp := env.do(t, http.MethodGet, "/", nil, "")
+	defer drain(resp)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
+
+	var bodyBytes []byte
+	bodyBytes, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(bodyBytes), "MCPJungle UI")
+}
+
+func TestE2E_DevMode_SystemEndpoint_ReportsUIEnabled(t *testing.T) {
+	env := setupE2EServer(t, model.ModeDev)
+
+	resp := env.do(t, http.MethodGet, "/api/v0/system", nil, "")
+	defer drain(resp)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body map[string]any
+	decodeJSON(t, resp, &body)
+	require.Equal(t, true, body["initialized"])
+	require.Equal(t, "development", body["mode"])
+	require.Equal(t, true, body["ui_enabled"])
+	require.NotEmpty(t, body["version"])
+}
+
+func TestE2E_DevMode_EnableDisableResources(t *testing.T) {
+	env := setupE2EServer(t, model.ModeDev)
+	registerEverythingServer(t, env, "")
+
+	resp := env.do(t, http.MethodGet, "/api/v0/resources", nil, "")
+	defer drain(resp)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var resources []map[string]any
+	decodeJSON(t, resp, &resources)
+	require.NotEmpty(t, resources)
+
+	resourceURI, ok := resources[0]["uri"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, resourceURI)
+
+	resp = env.do(t, http.MethodPost, "/api/v0/resources/disable?entity="+url.QueryEscape(resourceURI), nil, "")
+	defer drain(resp)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	resp = env.do(t, http.MethodGet, "/api/v0/resources", nil, "")
+	defer drain(resp)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	decodeJSON(t, resp, &resources)
+	require.False(t, resources[0]["enabled"].(bool))
+
+	resp = env.do(t, http.MethodPost, "/api/v0/resources/enable?entity="+url.QueryEscape(resourceURI), nil, "")
+	defer drain(resp)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	resp = env.do(t, http.MethodGet, "/api/v0/resources", nil, "")
+	defer drain(resp)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	decodeJSON(t, resp, &resources)
+	require.True(t, resources[0]["enabled"].(bool))
 }

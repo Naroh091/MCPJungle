@@ -1,0 +1,66 @@
+---
+title: "Development UI"
+description: "Use the local MCPJungle web UI in development mode to inspect and manage your gateway."
+---
+
+MCPJungle now includes a built-in web UI for local development-mode usage.
+
+The UI is intentionally scoped for individual users running MCPJungle on their own machine. It is a convenience layer on top of the same REST API used by the CLI and other clients.
+
+## Availability
+
+The UI is available only when MCPJungle is running in **development mode**.
+
+- Access path: `http://localhost:8080/`
+- MCP endpoint: `http://localhost:8080/mcp`
+
+If you run MCPJungle in **enterprise mode**, the UI is not served in v1.
+
+## What you can do
+
+The v1 UI supports:
+
+- View gateway status, mode, version, and MCP endpoint
+- Register and remove MCP servers
+- Enable and disable servers, tools, prompts, and resources
+- Browse tools and invoke them with JSON arguments
+- Browse prompts and render them with arguments
+- Browse resources and read live resource content
+- Create, edit, inspect, and delete tool groups
+
+## Intended workflow
+
+The UI is best used for:
+
+- local experimentation
+- quick inspection of what MCPJungle currently exposes
+- manual testing of tools, prompts, and resources
+- managing a personal setup without memorizing CLI commands
+
+For automation, repeatable workflows, and scripts, prefer the CLI or the REST API.
+
+## Limitations
+
+Current UI limitations:
+
+- development mode only
+- no enterprise auth or user-management UX
+- tool invocation and prompt rendering currently use raw JSON argument entry rather than rich schema-driven forms
+- the UI is optimized for local operators, not multi-user administration
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Start MCPJungle locally, then open the UI at `/`.
+  </Card>
+  <Card title="HTTP API overview" icon="code" href="/reference/api-overview">
+    See the underlying management API the UI uses.
+  </Card>
+  <Card title="Development guide" icon="hammer" href="/developers/development">
+    Frontend build and contributor workflow for the UI.
+  </Card>
+  <Card title="Support matrix" icon="table" href="/support-matrix">
+    Check the current support status of the UI.
+  </Card>
+</CardGroup>

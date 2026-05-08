@@ -20,6 +20,12 @@ docker compose up -d
 
 This exposes mcpjungle's streamable http mcp server at `http://localhost:8080/mcp` by default.
 
+If you're running locally in development mode, you can also open the built-in UI at:
+
+```text
+http://localhost:8080/
+```
+
 ## Add an MCP server
 
 1. Download the `mcpjungle` CLI on your local machine either using brew or directly from the [Releases Page](https://github.com/mcpjungle/MCPJungle/releases).
@@ -72,6 +78,8 @@ Claude will then attempt to call the `context7__get-library-docs` tool via Mcpju
 </p>
 
 You now have a working MCP setup with a single unified endpoint.
+
+If you prefer a browser-based control surface for local usage, open the [development UI](/guides/dev-ui) to inspect servers, tools, prompts, resources, and tool groups.
 
 ## Next steps
 

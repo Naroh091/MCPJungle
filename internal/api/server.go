@@ -166,6 +166,8 @@ func (s *Server) setupRouter() (*gin.Engine, error) {
 		},
 	)
 
+	r.GET("/", s.devUIHandler())
+
 	r.POST("/init", s.registerInitServerHandler())
 
 	requireEnterpriseMode := s.requireServerMode(model.ModeEnterprise)
@@ -240,6 +242,7 @@ func (s *Server) setupRouter() (*gin.Engine, error) {
 		userAPI.POST("/prompts/render", s.getPromptWithArgsHandler())
 
 		userAPI.GET("/users/whoami", requireEnterpriseMode, s.whoAmIHandler())
+		userAPI.GET("/system", s.getSystemInfoHandler())
 	}
 
 	// endpoints only accessible by an admin user in enterprise mode or anyone in development mode
@@ -260,6 +263,9 @@ func (s *Server) setupRouter() (*gin.Engine, error) {
 
 		adminAPI.POST("/prompts/enable", s.enablePromptsHandler())
 		adminAPI.POST("/prompts/disable", s.disablePromptsHandler())
+
+		adminAPI.POST("/resources/enable", s.enableResourcesHandler())
+		adminAPI.POST("/resources/disable", s.disableResourcesHandler())
 
 		// endpoints for managing MCP clients (enterprise mode only)
 		adminAPI.GET(
@@ -313,6 +319,8 @@ func (s *Server) setupRouter() (*gin.Engine, error) {
 		adminAPI.DELETE("/tool-groups/:name", s.deleteToolGroupHandler())
 		adminAPI.PUT("/tool-groups/:name", s.updateToolGroupHandler())
 	}
+
+	r.NoRoute(s.devUIHandler())
 
 	return r, nil
 }
