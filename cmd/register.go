@@ -1,15 +1,19 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/mcpjungle/mcpjungle/client"
@@ -29,6 +33,7 @@ var (
 
 	registerCmdServerConfigFilePath string
 	registerCmdForce                bool
+	registerCmdNoBrowser            bool
 )
 
 var registerMCPServerCmd = &cobra.Command{
@@ -92,6 +97,12 @@ func init() {
 		false,
 		"Forcefully register the server even if a server with the same name already exists. This will de-register the existing server, then register the new one.",
 	)
+	registerMCPServerCmd.Flags().BoolVar(
+		&registerCmdNoBrowser,
+		"no-browser",
+		false,
+		"Do not open the browser automatically during upstream OAuth. Print the authorization URL and wait for a pasted callback URL instead.",
+	)
 
 	registerMCPServerCmd.Flags().StringVarP(
 		&registerCmdServerConfigFilePath,
@@ -147,36 +158,55 @@ func runRegisterMCPServer(cmd *cobra.Command, args []string) error {
 	}
 
 	if result.AuthorizationRequired != nil {
-		if callbackSrv == nil {
-			return fmt.Errorf("upstream OAuth authorization required. Open this URL to continue: %s", result.AuthorizationRequired.AuthorizationURL)
-		}
-		cmd.Printf("OAuth authorization required. Opening browser for upstream server approval.\n")
-		openBrowser(result.AuthorizationRequired.AuthorizationURL)
+		if registerCmdNoBrowser {
+			cmd.Printf("OAuth authorization required. Open this URL in your browser, approve access, then paste the redirected callback URL below:\n%s\n", result.AuthorizationRequired.AuthorizationURL)
+			params, err := readOAuthCallbackFromInput(cmd)
+			if err != nil {
+				return fmt.Errorf("failed waiting for OAuth callback: %w", err)
+			}
 
-		timeout := time.Until(result.AuthorizationRequired.ExpiresAt)
-		if timeout <= 0 {
-			timeout = 5 * time.Minute
-		}
-		params, err := callbackSrv.Wait(timeout)
-		if err != nil {
-			return fmt.Errorf("failed waiting for OAuth callback: %w", err)
-		}
+			result, err = apiClient.CompleteUpstreamOAuthSession(
+				result.AuthorizationRequired.SessionID,
+				&types.CompleteUpstreamOAuthSessionInput{
+					Code:  params["code"],
+					State: params["state"],
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("failed to complete upstream OAuth registration: %w", err)
+			}
+		} else {
+			if callbackSrv == nil {
+				return fmt.Errorf("upstream OAuth authorization required. Open this URL to continue: %s", result.AuthorizationRequired.AuthorizationURL)
+			}
+			cmd.Printf("OAuth authorization required. Opening browser for upstream server approval.\n")
+			openBrowser(result.AuthorizationRequired.AuthorizationURL)
 
-		code := params["code"]
-		state := params["state"]
-		if code == "" || state == "" {
-			return fmt.Errorf("OAuth callback did not include both code and state")
-		}
+			timeout := time.Until(result.AuthorizationRequired.ExpiresAt)
+			if timeout <= 0 {
+				timeout = 5 * time.Minute
+			}
+			params, err := callbackSrv.Wait(timeout)
+			if err != nil {
+				return fmt.Errorf("failed waiting for OAuth callback: %w", err)
+			}
 
-		result, err = apiClient.CompleteUpstreamOAuthSession(
-			result.AuthorizationRequired.SessionID,
-			&types.CompleteUpstreamOAuthSessionInput{
-				Code:  code,
-				State: state,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("failed to complete upstream OAuth registration: %w", err)
+			code := params["code"]
+			state := params["state"]
+			if code == "" || state == "" {
+				return fmt.Errorf("OAuth callback did not include both code and state")
+			}
+
+			result, err = apiClient.CompleteUpstreamOAuthSession(
+				result.AuthorizationRequired.SessionID,
+				&types.CompleteUpstreamOAuthSessionInput{
+					Code:  code,
+					State: state,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("failed to complete upstream OAuth registration: %w", err)
+			}
 		}
 	}
 
@@ -369,6 +399,29 @@ func (s *oauthCallbackServer) Close() error {
 		return nil
 	}
 	return s.server.Close()
+}
+
+func readOAuthCallbackFromInput(cmd *cobra.Command) (map[string]string, error) {
+	cmd.Print("Callback URL: ")
+	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return nil, fmt.Errorf("OAuth callback URL cannot be empty")
+	}
+
+	parsed, err := url.Parse(line)
+	if err != nil {
+		return nil, fmt.Errorf("invalid OAuth callback URL: %w", err)
+	}
+	code := parsed.Query().Get("code")
+	state := parsed.Query().Get("state")
+	if code == "" || state == "" {
+		return nil, fmt.Errorf("OAuth callback URL did not include both code and state")
+	}
+	return map[string]string{"code": code, "state": state}, nil
 }
 
 // openBrowser best-effort launches the default browser on the local machine.
