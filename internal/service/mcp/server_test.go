@@ -56,7 +56,7 @@ func newTestLifecycleService(t *testing.T, db *gorm.DB) *MCPService {
 			mcpserver.WithPromptCapabilities(true),
 			mcpserver.WithResourceCapabilities(true, true),
 		),
-		Metrics:                telemetry.NewNoopCustomMetrics(),
+		Metrics:                 telemetry.NewNoopCustomMetrics(),
 		McpServerInitReqTimeout: 5,
 	})
 	require.NoError(t, err)
