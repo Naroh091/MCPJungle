@@ -69,6 +69,9 @@ func (m *MCPService) registerMcpServer(ctx context.Context, s *model.McpServer, 
 		return err
 	}
 
+	// Upon registration, a server is always enabled. Admin can choose to disable it later.
+	s.Enabled = true
+
 	// Only validate URLs for transports that actually carry a URL in their config.
 	switch s.Transport {
 	case types.TransportStreamableHTTP:
@@ -200,6 +203,9 @@ func (m *MCPService) EnableMcpServer(name string) ([]string, []string, error) {
 	if err := validateServerName(name); err != nil {
 		return nil, nil, err
 	}
+	if err := m.setMcpServerEnabled(name, true); err != nil {
+		return nil, nil, fmt.Errorf("failed to mark server %s enabled: %w", name, err)
+	}
 	toolsEnabled, err := m.EnableTools(name)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to enable tools for server %s: %w", name, err)
@@ -221,6 +227,9 @@ func (m *MCPService) DisableMcpServer(name string) ([]string, []string, error) {
 	if err := validateServerName(name); err != nil {
 		return nil, nil, err
 	}
+	if err := m.setMcpServerEnabled(name, false); err != nil {
+		return nil, nil, fmt.Errorf("failed to mark server %s disabled: %w", name, err)
+	}
 	toolsDisabled, err := m.DisableTools(name)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to disable tools for server %s: %w", name, err)
@@ -233,4 +242,32 @@ func (m *MCPService) DisableMcpServer(name string) ([]string, []string, error) {
 		return nil, nil, fmt.Errorf("failed to disable resources for server %s: %w", name, err)
 	}
 	return toolsDisabled, promptsDisabled, nil
+}
+
+// SetDashboardServerEnabled reuses the standard server enable/disable flow so dashboard
+// toggles stay consistent with CLI semantics and cascade to the server's tools, prompts,
+// and resources.
+func (m *MCPService) SetDashboardServerEnabled(name string, enabled bool) error {
+	if enabled {
+		_, _, err := m.EnableMcpServer(name)
+		return err
+	}
+	_, _, err := m.DisableMcpServer(name)
+	return err
+}
+
+// setMcpServerEnabled is a helper that updates the enabled status of the MCP server in the DB.
+func (m *MCPService) setMcpServerEnabled(name string, enabled bool) error {
+	server, err := m.GetMcpServer(name)
+	if err != nil {
+		return err
+	}
+	if server.Enabled == enabled {
+		return nil
+	}
+	server.Enabled = enabled
+	if err := m.db.Save(server).Error; err != nil {
+		return fmt.Errorf("failed to set server %s enabled=%t: %w", name, enabled, err)
+	}
+	return nil
 }

@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/mcpjungle/mcpjungle/internal/dashboardui"
 	"github.com/mcpjungle/mcpjungle/internal/model"
 	"github.com/mcpjungle/mcpjungle/internal/service/config"
+	"github.com/mcpjungle/mcpjungle/internal/service/dashboard"
 	"github.com/mcpjungle/mcpjungle/internal/service/mcp"
 	"github.com/mcpjungle/mcpjungle/internal/service/mcpclient"
 	"github.com/mcpjungle/mcpjungle/internal/service/toolgroup"
@@ -42,6 +45,7 @@ type ServerOptions struct {
 	ConfigService    *config.ServerConfigService
 	UserService      *user.UserService
 	ToolGroupService *toolgroup.ToolGroupService
+	DashboardService *dashboard.Service
 
 	OtelProviders *telemetry.Providers
 	Metrics       telemetry.CustomMetrics
@@ -60,6 +64,7 @@ type Server struct {
 	configService    *config.ServerConfigService
 	userService      *user.UserService
 	toolGroupService *toolgroup.ToolGroupService
+	dashboardService *dashboard.Service
 
 	otelProviders *telemetry.Providers
 	metrics       telemetry.CustomMetrics
@@ -68,20 +73,42 @@ type Server struct {
 	// These instances serve the requests made to tool groups' SSE tools.
 	// We need to maintain one instance for each group for sse to work correctly.
 	groupSseServers sync.Map
+
+	// dashboardOAuthMu guards dashboardOAuthResults, which is a short-lived
+	// in-memory cache used by the browser-based dashboard OAuth flow.
+	dashboardOAuthMu sync.Mutex
+	// dashboardOAuthResults stores terminal dashboard-facing OAuth status for a
+	// session ID (completed/failed/expired) so the frontend can poll for
+	// progress after opening the upstream authorization URL.
+	dashboardOAuthResults map[string]dashboardOAuthSessionResult
+}
+
+// dashboardOAuthSessionResult is the dashboard-facing terminal state for an
+// upstream OAuth registration attempt. This is not the source of truth for the
+// pending OAuth session itself; it is a lightweight cache used to coordinate
+// callback completion and frontend polling.
+type dashboardOAuthSessionResult struct {
+	Status     string
+	Error      string
+	ServerName string
+	ExpiresAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // NewServer initializes a new Gin server for MCPJungle registry and MCP proxy
 func NewServer(opts *ServerOptions) (*Server, error) {
 	s := &Server{
-		mcpProxyServer:    opts.MCPProxyServer,
-		sseMcpProxyServer: opts.SseMcpProxyServer,
-		mcpService:        opts.MCPService,
-		mcpClientService:  opts.MCPClientService,
-		configService:     opts.ConfigService,
-		userService:       opts.UserService,
-		toolGroupService:  opts.ToolGroupService,
-		otelProviders:     opts.OtelProviders,
-		metrics:           opts.Metrics,
+		mcpProxyServer:        opts.MCPProxyServer,
+		sseMcpProxyServer:     opts.SseMcpProxyServer,
+		mcpService:            opts.MCPService,
+		mcpClientService:      opts.MCPClientService,
+		configService:         opts.ConfigService,
+		userService:           opts.UserService,
+		toolGroupService:      opts.ToolGroupService,
+		dashboardService:      opts.DashboardService,
+		otelProviders:         opts.OtelProviders,
+		metrics:               opts.Metrics,
+		dashboardOAuthResults: make(map[string]dashboardOAuthSessionResult),
 	}
 
 	// Set up the router after the server is fully initialized
@@ -169,6 +196,17 @@ func (s *Server) setupRouter() (*gin.Engine, error) {
 	r.POST("/init", s.registerInitServerHandler())
 
 	requireEnterpriseMode := s.requireServerMode(model.ModeEnterprise)
+	requireDashboardMode := s.requireDashboardMode()
+
+	if s.dashboardService != nil {
+		dashboardFileServer, err := dashboardui.FileServer()
+		if err != nil {
+			return nil, err
+		}
+		r.GET("/", s.requireInitialized(), requireDashboardMode, gin.WrapH(dashboardFileServer))
+		r.GET("/index.html", s.requireInitialized(), requireDashboardMode, gin.WrapH(dashboardFileServer))
+		r.GET("/assets/*filepath", s.requireInitialized(), requireDashboardMode, gin.WrapH(dashboardFileServer))
+	}
 
 	// Set up the MCP proxy server on /mcp
 	streamableHTTPServer := server.NewStreamableHTTPServer(s.mcpProxyServer)
@@ -312,6 +350,33 @@ func (s *Server) setupRouter() (*gin.Engine, error) {
 		adminAPI.GET("/tool-groups", s.listToolGroupsHandler())
 		adminAPI.DELETE("/tool-groups/:name", s.deleteToolGroupHandler())
 		adminAPI.PUT("/tool-groups/:name", s.updateToolGroupHandler())
+	}
+
+	if s.dashboardService != nil {
+		dashboardAPI := r.Group(
+			"/api/dashboard",
+			s.requireInitialized(),
+			requireDashboardMode,
+		)
+		{
+			dashboardAPI.GET("/overview", s.dashboardOverviewHandler())
+			dashboardAPI.GET("/servers", s.dashboardServersHandler())
+			dashboardAPI.POST("/servers", s.dashboardRegisterServerHandler())
+			dashboardAPI.GET("/oauth/callback", s.dashboardOAuthCallbackHandler())
+			dashboardAPI.GET("/oauth/session/:id", s.dashboardOAuthSessionHandler())
+			dashboardAPI.DELETE("/servers/:name", s.dashboardDeleteServerHandler())
+			dashboardAPI.PATCH("/servers/:name/enabled", s.dashboardSetServerEnabledHandler())
+			dashboardAPI.GET("/tools", s.dashboardToolsHandler())
+			dashboardAPI.PATCH("/tools/:name/enabled", s.dashboardSetToolEnabledHandler())
+			dashboardAPI.GET("/tool-groups", s.dashboardToolGroupsHandler())
+			dashboardAPI.POST("/tool-groups", s.dashboardCreateToolGroupHandler())
+			dashboardAPI.GET("/tool-groups/:name", s.dashboardGetToolGroupHandler())
+			dashboardAPI.DELETE("/tool-groups/:name", s.dashboardDeleteToolGroupHandler())
+			dashboardAPI.GET("/prompts", s.dashboardPromptsHandler())
+			dashboardAPI.PATCH("/prompts/:name/enabled", s.dashboardSetPromptEnabledHandler())
+			dashboardAPI.GET("/resources", s.dashboardResourcesHandler())
+			dashboardAPI.GET("/diagnostics", s.dashboardDiagnosticsHandler())
+		}
 	}
 
 	return r, nil
